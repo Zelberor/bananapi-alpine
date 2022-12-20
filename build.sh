@@ -16,11 +16,11 @@ unzip -q -o -d "${UBOOT_DTBS_DIR}" "${UBOOT_DTBS_ZIP_PATH}"
 echo "Building alpine files..."
 ALPINE_FILES_OUT_DIR=${WORKDIR}/alpine_files
 mkdir -p "${ALPINE_FILES_OUT_DIR}"
-docker run --rm \
-	-v "${SCRIPT_DIR}/alpine-docker-scripts":/scripts \
-	-v "${ALPINE_FILES_OUT_DIR}":/img_out \
-	alpine:3.17 \
-	/scripts/build_image.sh
+#docker run --rm \
+#	-v "${SCRIPT_DIR}/alpine-docker-scripts":/scripts \
+#	-v "${ALPINE_FILES_OUT_DIR}":/img_out \
+#	alpine:3.17 \
+#	/scripts/build_image.sh
 
 archive_zips=( "${ALPINE_FILES_OUT_DIR}/"*tar.gz ) # Should only be one entry
 ALPINE_ARCHIVE_PATH=${archive_zips[0]}
@@ -38,50 +38,33 @@ mount_loop_img () {
 
 echo "Building base image..."
 BASE_IMG_BUILD_PATH=${WORKDIR}/base-alpine.img
-dd if=/dev/zero of="${BASE_IMG_BUILD_PATH}" bs=1M count=500
+dd if=/dev/zero of="${BASE_IMG_BUILD_PATH}" bs=1M count=200
 mount_loop_img "${BASE_IMG_BUILD_PATH}"
 
 echo "	Creating partitions..."
 sfdisk "${LOOPDEVICE}" <<EOF
 label: dos
-,200M,L
 ,+,L
 EOF
 
 echo "	Formatting..."
 BOOTPART_DEV=${LOOPDEVICE}p1
 BOOTPART_LABEL=ALPINE_BOOT
-DATAPART_DEV=${LOOPDEVICE}p2
-DATAPART_LABEL=ALPINE_DATA
 
 mkfs.ext4 -O ^64bit -L ${BOOTPART_LABEL} "${BOOTPART_DEV}"
-mkfs.ext4 -O ^64bit -L ${DATAPART_LABEL} "${DATAPART_DEV}"
 
 echo "	Mounting partitions..."
-BOOTPART_MOUNT_DIR=${WORKDIR}/boot-mnt
-mkdir -p "${BOOTPART_MOUNT_DIR}"
-mount "${BOOTPART_DEV}" "${BOOTPART_MOUNT_DIR}"
-DATAPART_MOUNT_DIR=${WORKDIR}/data-mnt
-mkdir -p "${DATAPART_MOUNT_DIR}"
-mount "${DATAPART_DEV}" "${DATAPART_MOUNT_DIR}"
+MOUNT_DIR=${WORKDIR}/mnt
+mkdir -p "${MOUNT_DIR}"
+mount "${BOOTPART_DEV}" "${MOUNT_DIR}"
 
 echo "	Extracting files to partitions..."
-bsdtar -xp -f "${ALPINE_ARCHIVE_PATH}" -C "${BOOTPART_MOUNT_DIR}" './boot/'
-mv "${BOOTPART_MOUNT_DIR}"/boot/* -t "${BOOTPART_MOUNT_DIR}/"
-rm -d "${BOOTPART_MOUNT_DIR}/boot"
-bsdtar -xp -f "${ALPINE_ARCHIVE_PATH}" -C "${DATAPART_MOUNT_DIR}" --exclude './boot/*'
-
-BOOT_FILES_SRC=${WORKDIR}/boot_files
-cp -rfT "${SCRIPT_DIR}/boot_files" "${BOOT_FILES_SRC}"
-chown -R 0:0 "${BOOT_FILES_SRC}"
-chmod -R 755 "${BOOT_FILES_SRC}"
-cp -rf --preserve=mode,ownership "${BOOT_FILES_SRC}/"* -t "${BOOTPART_MOUNT_DIR}"
-
-mkimage -A arm -O linux -T script -C none -a 0 -e 0 -d "${BOOTPART_MOUNT_DIR}/boot.cmd" "${BOOTPART_MOUNT_DIR}/boot.scr"
+bsdtar -xp -f "${ALPINE_ARCHIVE_PATH}" -C "${MOUNT_DIR}"
+mv "${MOUNT_DIR}"/boot/* -t "${MOUNT_DIR}/"
+rm -d "${MOUNT_DIR}/boot"
 
 echo "	Unmounting..."
-umount "${BOOTPART_DEV}"
-umount "${DATAPART_DEV}"
+umount -f "${BOOTPART_DEV}"
 losetup -d "${LOOPDEVICE}"
 
 # for BOARD in $(find "${UBOOT_DTBS_DIR}" -maxdepth 1 -mindepth 1 -type d -printf '%f '); do
@@ -105,20 +88,19 @@ for BOARD in bpi-m2z ; do
 	echo "	Mounting image..."
 	mount_loop_img "${IMG_BUILD_PATH}"
 	BOOTPART_DEV=${LOOPDEVICE}p1
-	DATAPART_DEV=${LOOPDEVICE}p2
 
-	BOOTPART_MOUNT_DIR=${IMG_WORKDIR}/boot-mnt
-	mkdir -p "${BOOTPART_MOUNT_DIR}"
-	mount "${BOOTPART_DEV}" "${BOOTPART_MOUNT_DIR}"
+	MOUNT_DIR=${IMG_WORKDIR}/mnt
+	mkdir -p "${MOUNT_DIR}"
+	mount "${BOOTPART_DEV}" "${MOUNT_DIR}"
 
 	echo "	Copying device specific files..."
-	DTB_FILE=${BOOTPART_MOUNT_DIR}/$(basename "${DTB_SRC_PATH}")
+	DTB_FILE=${MOUNT_DIR}/$(basename "${DTB_SRC_PATH}")
 	cp -f "${DTB_SRC_PATH}" "${DTB_FILE}"
 	chown 0:0 "${DTB_FILE}"
 	chmod 755 "${DTB_FILE}"
 
 	echo "	Unmounting image..."
-	umount "${BOOTPART_DEV}"
+	umount -f "${BOOTPART_DEV}"
 	losetup -d "${LOOPDEVICE}"
 
 	echo "	Adding u-boot..."

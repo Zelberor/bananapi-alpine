@@ -3,7 +3,7 @@
 set -e
 
 apk update
-apk add alpine-sdk build-base apk-tools alpine-conf busybox fakeroot git syslinux xorriso squashfs-tools sudo
+apk add alpine-sdk build-base apk-tools alpine-conf busybox fakeroot git syslinux xorriso squashfs-tools sudo u-boot-tools
 
 abuild-keygen -i -a -n
 
@@ -18,7 +18,7 @@ DOCKER_SCRIPTS_DIR=/scripts
 cp ${DOCKER_SCRIPTS_DIR}/mkimg.*.sh ${APORTS_SCRIPTS_DIR}/
 cp ${DOCKER_SCRIPTS_DIR}/genapkovl-*.sh ${APORTS_SCRIPTS_DIR}/
 
-TAG=edge
+TAG=v3.17
 IMG_OUT_DIR=/img_out
 cd /aports/scripts
 sh mkimage.sh --tag ${TAG} \
